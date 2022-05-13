@@ -23,13 +23,15 @@ module Utilities =
 
     let getUrlAsync url fileName =
         async {
-            let! request = Http.AsyncRequestStream(url)
-            use outputFile = new System.IO.FileStream(fileName, System.IO.FileMode.Create)
+                let! request = Http.AsyncRequestStream(url)
+                
+                use outputFile = new System.IO.FileStream(fileName, System.IO.FileMode.Create)
 
-            do!
-                request.ResponseStream.CopyToAsync(outputFile)
-                |> Async.AwaitTask
+                do!
+                    request.ResponseStream.CopyToAsync(outputFile)
+                    |> Async.AwaitTask
         }
+        |> Async.Catch
         |> Async.RunSynchronously
 
     let download url fileName = getUrlAsync url fileName
@@ -129,13 +131,14 @@ module DeviantArt =
         let root = "https://backend.deviantart.com/rss.xml?type=deviation&q="
         let images = getImages (root + $"{artist}" + "+sort%3Atime+meta%3Aall")
         let select = chooseRandom images
-        download select.Content.Url (projectRoot $"images/{select.Title}.png")
-
-        Wallpaper.setWallpaper (projectRoot $"images/{select.Title}.png")
+        /// TODO fixup how to deal with failed downloads
+        // match download select.Content.Url (projectRoot $"images/{select.Title}.png") with
+        // | () -> Wallpaper.setWallpaper (projectRoot $"images/{select.Title}.png")
+        // | exn -> ()
 
 module WallHaven =
     type WallHaven = JsonProvider<"sample.json", ResolutionFolder=__SOURCE_DIRECTORY__>
-    let root = "https://wallhaven.cc/api/v1/search?q=nature&atleast=1920x1080&sorting=random"
+    let root = "https://wallhaven.cc/api/v1/search?q=digital+art&atleast=1920x1080&sorting=random"
 
     let setRandomFromQuery () =
         let result = WallHaven.Load(root)
