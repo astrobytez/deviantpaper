@@ -136,7 +136,7 @@ module DeviantArt =
 module WallHaven =
     let chooseRandom = chooseRandom' Seed
     type WallHaven = JsonProvider<"sample.json", ResolutionFolder=__SOURCE_DIRECTORY__>
-    let root = "https://wallhaven.cc/api/v1/search?q=nature"
+    let root = "https://wallhaven.cc/api/v1/search?q=nature&atleast=1920x1080"
 
     let setRandomFromQuery () =
         let result = WallHaven.Load(root)
@@ -144,11 +144,6 @@ module WallHaven =
 
         let select =
             images
-            |> List.filter (fun image ->
-                if image.DimensionX >= 1920 && image.DimensionY >= 1028 then
-                    true
-                else
-                    false)
             |> chooseRandom
 
         let fileName = Path.GetFileName select.Path
@@ -156,4 +151,4 @@ module WallHaven =
 
         Wallpaper.setWallpaper (projectRoot $"images/{fileName}")
 
-WallHaven.setRandomFromQuery |> ignore
+WallHaven.setRandomFromQuery () |> ignore
