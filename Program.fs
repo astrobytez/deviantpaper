@@ -4,9 +4,12 @@ open FSharp.Data
 open System.Diagnostics
 open System.Threading.Tasks
 
-// TODO
-// [] Take seed from CLI or other source
-// [] Make bolero app build as standalone app
+/// TODO
+/// [x] Take seed from CLI or other source - from time
+/// [0] Make bolero app build as standalone app - reject
+/// [] Wallhaven API supports query selection of images size
+/// 
+
 
 module Utilities =
     let Seed = int (DateTimeOffset.Now.ToUnixTimeSeconds()) // Use time as seed to ensure different result each time
@@ -28,6 +31,11 @@ module Utilities =
                 |> Async.AwaitTask
         }
         |> Async.RunSynchronously
+
+    let download url fileName = getUrlAsync url fileName
+
+    let projectRoot path =
+        Path.Join [|__SOURCE_DIRECTORY__; path|]
 
 module Command =
 
@@ -105,10 +113,11 @@ module Wallpaper =
             eprintfn $"{results.StandardError}"
             Environment.Exit(results.ExitCode)
 
-module DeviantArt =
-    type DeviantArt = XmlProvider<"sample.xml", ResolutionFolder=__SOURCE_DIRECTORY__>
+open Utilities
 
-    let chooseRandom = Utilities.chooseRandom' Utilities.Seed
+module DeviantArt =
+    let chooseRandom = chooseRandom' Seed
+    type DeviantArt = XmlProvider<"sample.xml", ResolutionFolder=__SOURCE_DIRECTORY__>
 
     let getImages (query: string) =
         printfn $"Query param: {query}"
@@ -116,18 +125,35 @@ module DeviantArt =
         DeviantArt.Load(query).Channel.Items
         |> List.ofArray
 
-    let download url fileName = Utilities.getUrlAsync url fileName
-
     let setRandomFromArtist artist =
         let root = "https://backend.deviantart.com/rss.xml?type=deviation&q="
         let images = getImages (root + $"{artist}" + "+sort%3Atime+meta%3Aall")
         let select = chooseRandom images
-        download select.Content.Url $"images/{select.Title}.png"
+        download select.Content.Url (projectRoot $"images/{select.Title}.png")
 
-        Wallpaper.setWallpaper (
-            Path.Join [| __SOURCE_DIRECTORY__
-                         $"images/{select.Title}.png" |]
-        )
+        Wallpaper.setWallpaper (projectRoot $"images/{select.Title}.png")
 
-let deviant = "mr-singh-art"
-DeviantArt.setRandomFromArtist deviant
+module WallHaven =
+    let chooseRandom = chooseRandom' Seed
+    type WallHaven = JsonProvider<"sample.json", ResolutionFolder=__SOURCE_DIRECTORY__>
+    let root = "https://wallhaven.cc/api/v1/search?q=nature"
+
+    let setRandomFromQuery () =
+        let result = WallHaven.Load(root)
+        let images = result.Data |> List.ofArray
+
+        let select =
+            images
+            |> List.filter (fun image ->
+                if image.DimensionX >= 1920 && image.DimensionY >= 1028 then
+                    true
+                else
+                    false)
+            |> chooseRandom
+
+        let fileName = Path.GetFileName select.Path
+        download select.Path $"images/{fileName}"
+
+        Wallpaper.setWallpaper (projectRoot $"images/{fileName}")
+
+WallHaven.setRandomFromQuery |> ignore
