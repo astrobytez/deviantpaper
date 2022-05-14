@@ -34,7 +34,10 @@ module Utilities =
         |> Async.Catch
         |> Async.RunSynchronously
 
-    let download url fileName = getUrlAsync url fileName
+    let download url fileName : Result<string,string> = 
+        match getUrlAsync url fileName with
+        | Choice1Of2 a -> Ok $"Success download {url}"
+        | _ -> Error $"Failed to download {url}"
 
     let projectRoot path =
         Path.Join [|__SOURCE_DIRECTORY__; path|]
@@ -131,10 +134,9 @@ module DeviantArt =
         let root = "https://backend.deviantart.com/rss.xml?type=deviation&q="
         let images = getImages (root + $"{artist}" + "+sort%3Atime+meta%3Aall")
         let select = chooseRandom images
-        /// TODO fixup how to deal with failed downloads
-        // match download select.Content.Url (projectRoot $"images/{select.Title}.png") with
-        // | () -> Wallpaper.setWallpaper (projectRoot $"images/{select.Title}.png")
-        // | exn -> ()
+        match download select.Content.Url (projectRoot $"images/{select.Title}.png") with
+        | Ok _ -> Wallpaper.setWallpaper (projectRoot $"images/{select.Title}.png")
+        | Error msg -> printfn $"{msg}"
 
 module WallHaven =
     type WallHaven = JsonProvider<"sample.json", ResolutionFolder=__SOURCE_DIRECTORY__>
@@ -148,9 +150,8 @@ module WallHaven =
             images |> List.head // query sets result sorted as random
 
         let fileName = Path.GetFileName select.Path
-        download select.Path $"images/{fileName}"
-
-        printfn $"Select: {fileName}"
-        Wallpaper.setWallpaper (projectRoot $"images/{fileName}")
+        match download select.Path (projectRoot $"images/{fileName}") with
+        | Ok _ -> Wallpaper.setWallpaper (projectRoot $"images/{fileName}")
+        | Error msg -> printfn $"{msg}"
 
 WallHaven.setRandomFromQuery () |> ignore
