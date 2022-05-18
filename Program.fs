@@ -8,8 +8,8 @@ open System.Threading.Tasks
 /// [x] Take seed from CLI or other source - from time
 /// [0] Make bolero app build as standalone app - reject
 /// [] Wallhaven API supports query selection of images size
-/// 
-
+/// [] Create images directory if missing.
+/// [] DeviantArt API sucks - build fixes or remove module
 
 module Utilities =
     let Seed = int (DateTimeOffset.Now.ToUnixTimeSeconds()) // Use time as seed to ensure different result each time
@@ -24,7 +24,7 @@ module Utilities =
     let getUrlAsync url fileName =
         async {
                 let! request = Http.AsyncRequestStream(url)
-                
+
                 use outputFile = new System.IO.FileStream(fileName, System.IO.FileMode.Create)
 
                 do!
@@ -34,13 +34,15 @@ module Utilities =
         |> Async.Catch
         |> Async.RunSynchronously
 
-    let download url fileName : Result<string,string> = 
+    let download url fileName =
         match getUrlAsync url fileName with
         | Choice1Of2 a -> Ok $"Success download {url}"
         | _ -> Error $"Failed to download {url}"
 
-    let projectRoot path =
-        Path.Join [|__SOURCE_DIRECTORY__; path|]
+    let projectRoot paths =
+        [__SOURCE_DIRECTORY__] @ paths
+        |> Array.ofList
+        |> Path.Join
 
 module Command =
 
@@ -103,20 +105,28 @@ module Wallpaper =
             d.writeConfig("Image", "{file}")}}"""
 
     let setWallpaper path =
-        let execute = Command.executeCommand "/usr/bin/qdbus"
 
-        let results =
-            path
-            |> payload
-            |> command
-            |> execute
+        let pipline execute =
+            let results : Command.CommandResult =
+                path
+                |> payload
+                |> command
+                |> execute
+                |> Async.RunSynchronously
+
+            if results.ExitCode = 0 then
+                printfn $"{results.StandardOutput}"
+            else
+                eprintfn $"{results.StandardError}"
+                Environment.Exit(results.ExitCode)
+
+        /// Find path to D-Bus (usually /usr/bin/qdbus)
+        let result =
+            Command.executeCommand "type" (["-p"; "qdbus"] |> Seq.ofList)
             |> Async.RunSynchronously
-
-        if results.ExitCode = 0 then
-            printfn $"{results.StandardOutput}"
-        else
-            eprintfn $"{results.StandardError}"
-            Environment.Exit(results.ExitCode)
+        match result.ExitCode with
+        | 0 -> (sprintf $"{result.StandardOutput}").Trim() |> Command.executeCommand |> pipline
+        | _ -> ()
 
 open Utilities
 
@@ -130,28 +140,40 @@ module DeviantArt =
         DeviantArt.Load(query).Channel.Items
         |> List.ofArray
 
-    let setRandomFromArtist artist =
+    let setRandomFromArtist outDir artist =
+        if not (Directory.Exists (projectRoot [outDir])) then
+            try
+                Directory.CreateDirectory (projectRoot [outDir]) |> ignore
+            with exn ->
+                printfn $"Failed to create output directory {outDir} - {exn}"
+
         let root = "https://backend.deviantart.com/rss.xml?type=deviation&q="
         let images = getImages (root + $"{artist}" + "+sort%3Atime+meta%3Aall")
         let select = chooseRandom images
-        match download select.Content.Url (projectRoot $"images/{select.Title}.png") with
-        | Ok _ -> Wallpaper.setWallpaper (projectRoot $"images/{select.Title}.png")
+        match download select.Content.Url (projectRoot [outDir; $"{select.Title}.png"]) with
+        | Ok _ -> Wallpaper.setWallpaper (projectRoot [outDir; $"{select.Title}.png"])
         | Error msg -> printfn $"{msg}"
 
 module WallHaven =
     type WallHaven = JsonProvider<"sample.json", ResolutionFolder=__SOURCE_DIRECTORY__>
-    let root = "https://wallhaven.cc/api/v1/search?q=digital+art&atleast=1920x1080&sorting=random"
+    let root query = $"""https://wallhaven.cc/api/v1/search?q={query}&atleast=1920x1080&sorting=random"""
 
-    let setRandomFromQuery () =
-        let result = WallHaven.Load(root)
+    let setRandomFromQuery outDir query =
+        if not (Directory.Exists (projectRoot [outDir])) then
+            try
+                Directory.CreateDirectory (projectRoot [outDir]) |> ignore
+            with exn ->
+                printfn $"Failed to create output directory {outDir} - {exn}"
+
+        let result = WallHaven.Load(root query)
         let images = result.Data |> List.ofArray
 
         let select =
             images |> List.head // query sets result sorted as random
 
         let fileName = Path.GetFileName select.Path
-        match download select.Path (projectRoot $"images/{fileName}") with
-        | Ok _ -> Wallpaper.setWallpaper (projectRoot $"images/{fileName}")
+        match download select.Path (projectRoot [outDir; $"{fileName}.png"]) with
+        | Ok _ -> Wallpaper.setWallpaper (projectRoot [outDir; $"{fileName}.png"])
         | Error msg -> printfn $"{msg}"
 
-WallHaven.setRandomFromQuery () |> ignore
+WallHaven.setRandomFromQuery "images" "digital+art" |> ignore
