@@ -176,4 +176,21 @@ module WallHaven =
         | Ok _ -> Wallpaper.setWallpaper (projectRoot [outDir; $"{fileName}.png"])
         | Error msg -> printfn $"{msg}"
 
-WallHaven.setRandomFromQuery "images" "digital+art" |> ignore
+[<EntryPoint>]
+let main args =
+
+    // "digital+art"
+    // "Anime+space+landscape"
+
+    let query = 
+        match args.Length with
+        | n when n > 0 ->
+            args
+            |> Array.reduce (
+                fun a b -> $"{a}+{b}"
+            )
+        | _ -> "Anime+space+landscape"
+
+    printfn $"Query is '{query}'"
+    WallHaven.setRandomFromQuery "images" query |> ignore
+    0
